@@ -1,6 +1,12 @@
 #include "serial.h"
 
+#include <stddef.h>
 #include <avr/io.h>
+#include <avr/interrupt.h>
+
+static volatile uint8_t *tx_data = NULL;
+static volatile uint8_t tx_data_len = 0;
+static volatile uint8_t tx_cur_byte = 0;
 
 void serial_init(void)
 {
@@ -14,15 +20,34 @@ void serial_init(void)
     UCSR0C = _BV(UCSZ01) | _BV(UCSZ00);
 }
 
-void serial_tx(char *data, uint8_t len)
+void serial_tx(uint8_t data)
 {
-    // TODO make this asynchronous by using TX interrupt
+    while (!(UCSR0A & _BV(UDRE0)))
+        ;
 
-    while (len-- > 0)
-    {
-        while (!(UCSR0A & _BV(UDRE0)))
-            ;
+    UDR0 = data;
+}
 
-        UDR0 = *(data++);
-    }
+void serial_tx_buffer(uint8_t *data, uint8_t len)
+{
+    tx_data = data;
+    tx_data_len = len;
+
+    // Enable Data Register Empty interrupt (starts transmission)
+    UCSR0B |= _BV(UDRIE0);
+}
+
+int serial_putc(char c, FILE *stream)
+{
+    serial_tx((uint8_t)c);
+    return 0;
+}
+
+ISR(USART_UDRE_vect)
+{
+    UDR0 = *(tx_data++);
+
+    // Disable Data Register Empty interrupt if last byte was sent
+    if (--tx_data_len == 0)
+        UCSR0B &= ~_BV(UDRIE0);
 }
